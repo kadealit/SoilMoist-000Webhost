@@ -1,0 +1,85 @@
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WiFiMulti.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
+// WiFi credentials
+const char *ssid = "Bb";
+const char *password = "14012004";
+
+ESP8266WiFiMulti WiFiMulti;
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
+String formattedTime;
+String dayStamp;
+String timeStamp;
+
+#define SensorPin A0  // used for Arduino and ESP8266
+//#define SensorPin 4  // used for ESP32
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println();
+  Serial.println();
+  Serial.println();
+  for (uint8_t t = 4; t > 0; t--) {
+    Serial.printf("[SETUP] WAIT %d...\n", t);
+    Serial.flush();
+    delay(1000);
+  }
+  WiFi.mode(WIFI_STA);
+  WiFiMulti.addAP(ssid, password);
+  timeClient.begin();
+  timeClient.setTimeOffset(28800);
+}
+
+void loop() {
+  // wait for WiFi connection
+  if ((WiFiMulti.run() == WL_CONNECTED)) {
+    WiFiClient client;
+    HTTPClient http;
+    //read time
+    while(!timeClient.update()) {
+      timeClient.forceUpdate();
+    }
+    // The formattedTime comes with the following format:
+    // YYYY-MM-DDTHH:MM:SSZ
+    // We need to extract date and time
+    formattedTime = timeClient.getFormattedTime();
+    Serial.println(formattedTime);
+
+    // Extract date and time
+    int spaceIndex = formattedTime.indexOf(" ");
+    dayStamp = formattedTime.substring(0, spaceIndex); // Extract date
+    timeStamp = formattedTime.substring(spaceIndex + 1, spaceIndex + 9); // Extract time
+    Serial.print("DATE: ");
+    Serial.println(dayStamp);
+    Serial.print("HOUR: ");
+    Serial.println(timeStamp);
+    
+    // Read soil moisture sensor value
+    int sensorValue = analogRead(SensorPin);
+    Serial.print("Soil Moisture: ");
+    Serial.println(sensorValue);
+
+    // Construct the POST data string
+    String postData = "Date=" + dayStamp + "&Time=" + timeStamp + "&Node=ESP_1&SoilMoisture=" + String(sensorValue) + "&submit=Submit";
+        
+    Serial.print("[HTTP] begin...\n");
+    if (http.begin(client, "http://clawed-change.000webhostapp.com/proses.php")) {  // HTTP      
+      http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+      int httpCode = http.POST(postData);   // Send the request
+      String payload = http.getString();    // Get the response payload
+      Serial.println(httpCode);   // Print HTTP return code
+      Serial.println(payload);    // Print request response payload
+      http.end();
+    } else {
+      Serial.printf("[HTTP} Unable to connect\n");
+    }
+  }
+  delay(30000);
+}
